@@ -1,0 +1,150 @@
+---
+title: "Survival Analysis of Ovarian Carcinoma Patients in Clinical Trials"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+editor_options:
+  markdown:
+    wrap: 72
+---
+
+```{r setup, include=FALSE, warning=F, message=F}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(data.table)
+library(tidyverse)
+library(arules)
+library(arulesViz)
+library(survival)
+library(survminer)
+library(plotly)
+```
+
+```{r warning=FALSE}
+data(jasa, package="survival")
+jasa
+```
+
+```{r warning=FALSE}
+data(ovarian)
+ovarian %>%
+  mutate(fustat = as.integer(fustat)) ->
+  ovarian
+head(ovarian)
+```
+
+```{r}
+table(ovarian$rx)
+table(ovarian$fustat)
+table(ovarian$resid.ds)
+```
+
+fustat: censoring status <br>
+0 = censored <br>
+1 = uncensored <br>
+<br>
+rx: treatment type <br>
+1 = cyclophosphamide <br>
+2 = combined (cyclophosphamide + adriamycin) <br>
+<br>
+resid.ds <br>
+1 = microscopic residual disease <br>
+2 = macroscopic residual disease <br>
+
+```{r}
+summary(ovarian)
+```
+
+```{r warning=FALSE}
+ggplot(ovarian, aes(x = age, y = futime/30.42, color = factor(fustat))) +
+  geom_point() +
+  scale_color_manual(values = c("darkgreen", "red"), labels = c("Censored", "Death")) +
+  labs(x = "Age", y = "Time to death (in months)", color = "Survival status")
+```
+
+```{r}
+# Compute Kaplan-Meier survival curve
+km.fit <- survfit(Surv(futime/30.42, fustat) ~ 1, data = ovarian)
+summary(km.fit)
+```
+
+```{r}
+# Kaplan Meier on uncensored patients
+uncensored_patients <- ovarian[ovarian$fustat == 1, ]
+km.uncensored <- survfit(Surv(futime/30.42, fustat) ~ 1, data = uncensored_patients)
+ggsurvplot(km.uncensored,
+           xlab = "Time (in months)",
+           ylab = "Survival Probability",
+           legend.title = "Group",
+           legend.labs = c("All Patients")) +
+  ggtitle("Kaplan-Meier on Uncensored Patients")
+```
+
+Here it is easy to determine the survival rate/survival probability
+because we have legitimate data of each patient where he/she is alive or
+dead at a particular instance of time. But in theory this graph is wrong
+as we are not considering the uncensored patients so the graph gives us
+a wrong estimation of survival rate at a particular time.
+
+```{r message=F, warning=F}
+ggsurvplot(km.fit,
+           xlab = "Time (in months)",
+           ylab = "Survival Probability",
+           legend.title = "Group",
+           legend.labs = c("All Patients")) +
+  ggtitle("Kaplan-Meier Survival Curve")
+```
+
+Here the vertical lines indicate an event where the person gets censored
+hence in order to plot the survival rate we use the law of total
+probability through which we can estimate the survival rate/survival
+probability. And if we don't consider censored patients the Kaplan-Meier
+curve wrongly gives the survival rate. For eg. After 5 months from the
+first graph the survival rate is 0.75 but after considering censored
+patients it outputs 0.95. Hence this shows the importance of not
+neglecting censored subjects.
+
+```{r}
+# Computing Kaplan-Meier survival curves by treatment regimen
+ovarian_km_rx <- survfit(Surv(futime/30.42, fustat) ~ rx, data = ovarian)
+ggsurvplot(ovarian_km_rx, color = "rx",
+           xlab = "Time (in months)",
+           ylab = "Survival Probability",
+           legend.title = "Treatment",
+           legend.labs = c("Standard", "Experimental")) +
+  ggtitle("Kaplan-Meier Survival Curve by Treatment")
+```
+
+From the plot, it appears that the combined approach seems to have the
+potential to increase the survival rate.
+
+```{r}
+# Estimated survival probability after 2 years (24 months)
+summary(km.fit, times = 24)
+```
+
+```{r}
+# naive estimate for suvival after 2 years (24 months)
+num_deaths <- filter(ovarian, fustat==1 & futime <= 24) %>%
+  nrow()
+num_alive <- filter(ovarian, futime > 24) %>%
+  nrow()
+
+binom.test(c(num_alive, num_deaths))
+```
+
+```{r}
+ggsurvplot(ovarian_km_rx, conf.int = 0.95)
+```
+
+```{r}
+summary(ovarian_km_rx)
+```
+
+```{r}
+data.logrank <- survdiff(Surv(futime, fustat) ~ factor(rx), data = ovarian)
+data.logrank
+```
+
+The results from the log-rank test did not reveal a significant difference in survival between the treatment types (rx=1 and rx=2) for ovarian carcinoma patients in the clinical trials. However, more thorough research and larger sample sizes might be required to offer more conclusive evidence. <br>
